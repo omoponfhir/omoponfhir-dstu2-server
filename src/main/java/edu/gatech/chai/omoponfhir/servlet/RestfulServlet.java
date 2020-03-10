@@ -17,9 +17,24 @@ package edu.gatech.chai.omoponfhir.servlet;
 
 import java.util.*;
 
+import edu.gatech.chai.omoponfhir.dstu2.security.SMARTonFHIRConformanceStatement;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ConceptMapResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ConditionResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceUseStatementResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DocumentReferenceResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.EncounterResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationRequestResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationStatementResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ObservationResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.OrganizationResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.PatientResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.PractitionerResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ProcedureResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ServerOperations;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.SystemTransactionProvider;
 import edu.gatech.chai.omoponfhir.security.OIDCInterceptor;
-import edu.gatech.chai.omoponfhir.omopv5.stu3.provider.*;
-import edu.gatech.chai.omoponfhir.stu3.security.SMARTonFHIRConformanceStatement;
 
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.cors.CorsConfiguration;
@@ -48,7 +63,7 @@ public class RestfulServlet extends RestfulServer {
 	 * Constructor
 	 */
 	public RestfulServlet() {
-		super(FhirContext.forDstu3());
+		super(FhirContext.forDstu2());
 	}
 
 	/**
@@ -57,7 +72,7 @@ public class RestfulServlet extends RestfulServer {
 	@Override
 	public void initialize() {
 		// Set server name
-		setServerName("GT-FHIR2 for OMOPv5");
+		setServerName("OMOPonFHIR for FHIR DSTU2 and OMOPv5");
 
 		// If we have system environment variable to hardcode the base URL, do it now.
 		String serverBaseUrl = System.getenv("SERVERBASE_URL");
