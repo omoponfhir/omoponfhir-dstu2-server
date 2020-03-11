@@ -22,6 +22,8 @@ import javax.servlet.http.HttpServletRequest;
 
 import ca.uhn.fhir.model.api.ExtensionDt;
 import ca.uhn.fhir.model.dstu2.resource.Conformance;
+import ca.uhn.fhir.model.dstu2.resource.Conformance.RestSecurity;
+import ca.uhn.fhir.model.dstu2.valueset.RestfulSecurityServiceEnum;
 import ca.uhn.fhir.model.primitive.UriDt;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.server.RestfulServer;
@@ -40,7 +42,7 @@ public class SMARTonFHIRConformanceStatement extends ServerConformanceProvider {
 	// static String registerURI =
 	// "http://fhir-registry.smarthealthit.org/Profile/oauth-uris#register";
 
-	static String oauthURI = "http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris";
+	static String oauthURI = "http://DSTU2/fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris";
 	static String authorizeURI = "authorize";
 	static String tokenURI = "token";
 	static String registerURI = "register";
@@ -90,8 +92,11 @@ public class SMARTonFHIRConformanceStatement extends ServerConformanceProvider {
 	public Conformance getServerConformance(HttpServletRequest theRequest, RequestDetails theRequestDetails) {
 		Conformance conformanceStatement = super.getServerConformance(theRequest, theRequestDetails);
 		
-		ExtensionDt oauthExtension = new ExtensionDt();
-		oauthExtension.setUrl(oauthURI);
+		RestSecurity restSec = conformanceStatement.getRestFirstRep().getSecurity();
+		restSec.addService(RestfulSecurityServiceEnum.SMART_ON_FHIR);
+		
+		ExtensionDt extension = new ExtensionDt();
+		extension.setUrl(oauthURI);
 		
 		ExtensionDt authorizeExtension = new ExtensionDt();
 		authorizeExtension.setUrl(authorizeURI);
@@ -101,10 +106,10 @@ public class SMARTonFHIRConformanceStatement extends ServerConformanceProvider {
 		tokenExtension.setUrl(tokenURI);
 		tokenExtension.setValue(new UriDt(tokenURIvalue));
 		
-		conformanceStatement.addRest().getSecurity().addUndeclaredExtension(oauthExtension);
-		conformanceStatement.addRest().getSecurity().addUndeclaredExtension(authorizeExtension);
-		conformanceStatement.addRest().getSecurity().addUndeclaredExtension(tokenExtension);
-
+		extension.addUndeclaredExtension(authorizeExtension);
+		extension.addUndeclaredExtension(tokenExtension);
+		restSec.addUndeclaredExtension(extension);
+		
 		return conformanceStatement;
 	}
 
