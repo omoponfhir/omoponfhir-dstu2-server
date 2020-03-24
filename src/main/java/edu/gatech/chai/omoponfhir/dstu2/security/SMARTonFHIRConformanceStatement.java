@@ -18,16 +18,23 @@
  */
 package edu.gatech.chai.omoponfhir.dstu2.security;
 
+import java.util.Map;
+
 import javax.servlet.http.HttpServletRequest;
 
 import ca.uhn.fhir.model.api.ExtensionDt;
 import ca.uhn.fhir.model.dstu2.resource.Conformance;
+import ca.uhn.fhir.model.dstu2.resource.Conformance.Rest;
+import ca.uhn.fhir.model.dstu2.resource.Conformance.RestResource;
 import ca.uhn.fhir.model.dstu2.resource.Conformance.RestSecurity;
 import ca.uhn.fhir.model.dstu2.valueset.RestfulSecurityServiceEnum;
+import ca.uhn.fhir.model.primitive.DecimalDt;
 import ca.uhn.fhir.model.primitive.UriDt;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.server.RestfulServer;
 import ca.uhn.fhir.rest.server.provider.dstu2.ServerConformanceProvider;
+import ca.uhn.fhir.util.ExtensionConstants;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.utilities.ExtensionUtil;
 
 /**
  * @author mc142local
@@ -70,8 +77,8 @@ public class SMARTonFHIRConformanceStatement extends ServerConformanceProvider {
 	}
 
 	public SMARTonFHIRConformanceStatement(RestfulServer theRestfulServer) {
-		super(theRestfulServer);
-		super.setCache(false);
+//		super(theRestfulServer);
+//		super.setCache(false);
 
 //		try {
 //			InetAddress addr = java.net.InetAddress.getLocalHost();
@@ -91,32 +98,43 @@ public class SMARTonFHIRConformanceStatement extends ServerConformanceProvider {
 	@Override
 	public Conformance getServerConformance(HttpServletRequest theRequest, RequestDetails theRequestDetails) {
 		Conformance conformanceStatement = super.getServerConformance(theRequest, theRequestDetails);
-		
-		RestSecurity restSec = conformanceStatement.getRestFirstRep().getSecurity();
-		restSec.addService(RestfulSecurityServiceEnum.SMART_ON_FHIR);
-		
-		ExtensionDt extension = new ExtensionDt();
-		extension.setUrl(oauthURI);
-		
-		ExtensionDt authorizeExtension = new ExtensionDt();
-		authorizeExtension.setUrl(authorizeURI);
-		authorizeExtension.setValue(new UriDt(authorizeURIvalue));
 
-		ExtensionDt tokenExtension = new ExtensionDt();
-		tokenExtension.setUrl(tokenURI);
-		tokenExtension.setValue(new UriDt(tokenURIvalue));
-		
-		extension.addUndeclaredExtension(authorizeExtension);
-		extension.addUndeclaredExtension(tokenExtension);
-		restSec.addUndeclaredExtension(extension);
-		
+		Map<String, Long> counts = ExtensionUtil.getResourceCounts();
+
+		for (Rest rest : conformanceStatement.getRest()) {
+			for (RestResource nextResource : rest.getResource()) {
+				Long count = counts.get(nextResource.getTypeElement().getValueAsString());
+				if (count != null) {
+					nextResource.addUndeclaredExtension(new ExtensionDt(false, ExtensionConstants.CONF_RESOURCE_COUNT, new DecimalDt(count)));
+				}
+			}
+			
+			RestSecurity restSec = rest.getSecurity();
+			restSec.addService(RestfulSecurityServiceEnum.SMART_ON_FHIR);
+
+			ExtensionDt extension = new ExtensionDt();
+			extension.setUrl(oauthURI);
+
+			ExtensionDt authorizeExtension = new ExtensionDt();
+			authorizeExtension.setUrl(authorizeURI);
+			authorizeExtension.setValue(new UriDt(authorizeURIvalue));
+
+			ExtensionDt tokenExtension = new ExtensionDt();
+			tokenExtension.setUrl(tokenURI);
+			tokenExtension.setValue(new UriDt(tokenURIvalue));
+
+			extension.addUndeclaredExtension(authorizeExtension);
+			extension.addUndeclaredExtension(tokenExtension);
+			restSec.addUndeclaredExtension(extension);
+		}
+
 		return conformanceStatement;
 	}
 
 	public void setAuthServerUrl(String url) {
 		authorizeURIvalue = url;
 	}
-	
+
 	public void setTokenServerUrl(String url) {
 		tokenURIvalue = url;
 	}
