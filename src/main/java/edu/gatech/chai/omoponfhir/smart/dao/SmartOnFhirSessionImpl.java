@@ -73,6 +73,18 @@ public class SmartOnFhirSessionImpl extends BaseSmartOnFhir implements SmartOnFh
 			logger.error(e.getMessage());
 		}
 	}
+	
+	public void deleteByAppId(String appId) {
+		String sql = "DELETE FROM SmartOnFhirSession where app_id=?";
+
+		try (Connection conn = this.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+			pstmt.setString(1, appId);
+			pstmt.executeUpdate();
+			logger.info("Session Entry with appId (" + appId + ") deleted");
+		} catch (SQLException e) {
+			logger.error(e.getMessage());
+		}		
+	}
 
 	private SmartOnFhirSessionEntry createSessionEntry(ResultSet rs) throws SQLException {
 		SmartOnFhirSessionEntry appEntry = new SmartOnFhirSessionEntry();
@@ -185,7 +197,7 @@ public class SmartOnFhirSessionImpl extends BaseSmartOnFhir implements SmartOnFh
 				sessionEntry = createSessionEntry(rs);
 				logger.info("Session" + printSessionInfo(sessionEntry));
 			} else {
-				logger.info("No App Entry Exist with access_token = " + token);
+				logger.info("No Session Entry Exist with access_token = " + token);
 			}
 		} catch (SQLException e) {
 			logger.error(e.getMessage());
@@ -207,7 +219,7 @@ public class SmartOnFhirSessionImpl extends BaseSmartOnFhir implements SmartOnFh
 				sessionEntry = createSessionEntry(rs);
 				logger.info("Session" + printSessionInfo(sessionEntry));
 			} else {
-				logger.info("No App Entry Exist with refresh token = " + token);
+				logger.info("No Session Entry Exist with refresh token = " + token);
 			}
 		} catch (SQLException e) {
 			logger.error(e.getMessage());
@@ -250,6 +262,20 @@ public class SmartOnFhirSessionImpl extends BaseSmartOnFhir implements SmartOnFh
 		}
 	}
 
+	public void updateAccessTokenTimeout(String sessionId, java.sql.Date timeoutDate) {
+		String sql = "UPDATE SmartOnFhirSession SET access_token_expiration_dt=? where session_id=?";
+
+		try (Connection conn = this.connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+			pstmt.setDate(1, timeoutDate);
+			pstmt.setString(2, sessionId);
+			pstmt.executeUpdate();
+			
+			logger.info("Access Token Timeout is updated\nSession Id:" + sessionId + " to " + timeoutDate);
+		} catch (SQLException e) {
+			logger.error(e.getMessage());
+		}
+	}
+	
 	public boolean exists(String sessionId) {
 		String sql = "SELECT * FROM SmartOnFhirSession where session_id=?";
 
