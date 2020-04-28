@@ -119,7 +119,7 @@ public class Authorization {
 			logger.debug("Access Token for Introspect:" + accessToken);
 
 			if (introspectToken(accessToken) == false) {
-				return "Invalid Access Token";
+				return "Invalid or Expired Access Token";
 			}
 
 		} catch (OAuthSystemException | OAuthProblemException e) {
@@ -159,7 +159,7 @@ public class Authorization {
 		if (jsonObject.getBoolean("active") != true) {
 			// This is not active token.
 			active = false;
-			logger.debug("Introspect response with non-Active token");
+			logger.debug("Introspect response with non-Active token, meaning that the token might be missing or expired");
 			return false;
 		}
 		active = true;
@@ -210,7 +210,7 @@ public class Authorization {
 			return false;
 		}
 
-		if (scopeSet.contains("user/*.*")) {
+		if (scopeSet.contains("user/*.*") || scopeSet.contains("system/*.*")) {
 			is_admin = true;
 		}
 
@@ -273,7 +273,7 @@ public class Authorization {
 			// If the scope is not form of <patient or user>/<resource>.<access>, (eg)
 			// patient/*.read,
 			// then, we skip to next scope as this only evaluates the resource level check.
-			String patternString = "(user|patient)\\/[a-zA-Z*]+.(read|write|\\*)";
+			String patternString = "(user|patient|system)\\/[a-zA-Z*]+.(read|write|\\*)";
 			Pattern pattern = Pattern.compile(patternString);
 			Matcher matcher = pattern.matcher(scope);
 			if (matcher.matches() == false)
