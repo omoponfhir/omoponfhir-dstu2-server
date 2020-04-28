@@ -51,15 +51,25 @@ import org.springframework.web.bind.annotation.SessionAttributes;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
 
+import edu.gatech.chai.omoponfhir.smart.dao.JwkSetImpl;
 import edu.gatech.chai.omoponfhir.smart.dao.SmartOnFhirAppImpl;
 import edu.gatech.chai.omoponfhir.smart.dao.SmartOnFhirSessionImpl;
+import edu.gatech.chai.omoponfhir.smart.model.JwkSetEntry;
 import edu.gatech.chai.omoponfhir.smart.model.SmartOnFhirAppEntry;
 import edu.gatech.chai.omoponfhir.smart.model.SmartOnFhirAppListContainer;
 import edu.gatech.chai.omoponfhir.smart.model.SmartOnFhirSessionEntry;
+import edu.gatech.chai.omoponfhir.smart.servlet.jwt.JwtUtil;
+import edu.gatech.chai.omoponfhir.smart.servlet.response.IntrospectResponse;
+import edu.gatech.chai.omoponfhir.smart.servlet.response.OAuth2Error;
+import edu.gatech.chai.omoponfhir.smart.servlet.response.TokenResponse;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Header;
+import io.jsonwebtoken.Jws;
+import io.jsonwebtoken.JwsHeader;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.SignatureException;
 
 /**
  * auth/ implementation for SMART on FHIR support for authentication
@@ -82,6 +92,9 @@ public class SmartAuthServicesController {
 
 	@Autowired
 	protected SmartOnFhirAppImpl smartOnFhirApp;
+
+	@Autowired
+	protected JwkSetImpl jwkSet;
 
 	@Autowired
 	protected SmartOnFhirSessionImpl smartOnFhirSession;
@@ -119,13 +132,13 @@ public class SmartAuthServicesController {
 		}
 
 		simEhr = false;
-		
+
 		if (System.getenv("ACCESS_TOKEN_TIMEOUT_MIN") != null) {
 			accessTokenTimeoutMinutes = Integer.valueOf(System.getenv("ACCESS_TOKEN_TIMEOUT_MIN"));
 		} else {
 			accessTokenTimeoutMinutes = SmartAuthServicesController.timeout_min;
 		}
-		
+
 	}
 
 //	@ModelAttribute("oauth2attr")
@@ -198,7 +211,7 @@ public class SmartAuthServicesController {
 		payload.put("exp", expiration.getTime() / 1000);
 
 		JwtBuilder jwtBuilder = Jwts.builder().setHeaderParam(Header.TYPE, Header.JWT_TYPE)
-				.setPayload(payload.toString()).signWith(signatureAlgorithm, signingKey);
+				.setPayload(payload.toString()).signWith(signingKey, signatureAlgorithm);
 		return jwtBuilder.compact();
 	}
 
@@ -377,41 +390,68 @@ public class SmartAuthServicesController {
 		return base64Encoder.encodeToString(randomBytes);
 	}
 
+	private String getAToken() {
+		String token = null;
+		
+		boolean exists = true;
+		while (exists) {
+			token = SmartAuthServicesController.generateNewToken();
+			if (smartOnFhirSession.getSmartOnFhirAppByToken(token) == null)
+				exists = false;
+		}
+		
+		return token;
+	}
+	
 	@RequestMapping(value = "/token", method = RequestMethod.POST, produces = "application/json")
 	@ResponseBody
 //	public String token(
-	public ResponseEntity<TokenResponse> token(@RequestParam(name = "grant_type", required = true) String grantType,
-			@RequestParam(name = "code", required = true) String code,
-			@RequestParam(name = "redirect_uri", required = true) String redirectUri,
-			@RequestParam(name = "client_id", required = true) String appId,
+	public ResponseEntity<?> token(@RequestParam(name = "grant_type", required = true) String grantType,
+			@RequestParam(name = "code", required = false) String code,
+			@RequestParam(name = "redirect_uri", required = false) String redirectUri,
+			@RequestParam(name = "client_id", required = false) String appId,
 			@RequestParam(name = "refresh_token", required = false) String refreshCode,
+			@RequestParam(name = "client_assertion_type", required = false) String clientAssertionType,
+			@RequestParam(name = "client_assertion", required = false) String clientAssertion,
 			@RequestParam(name = "scope", required = false) String scope, Model model) {
 
+		// Purge any old sessions.
+		smartOnFhirSession.purgeOldSession();
+		
 //		// Alway pass this information so that JSP can route to correct endpoint
 //		model.addAttribute("base_url", baseUrl);
 
-		logger.debug(
-				"Token Requested:\ncode: " + code + "\nredirect_uri:" + redirectUri + "\nclient_id:" + appId + "\n");
-		if (!"authorization_code".equals(grantType) && !"refresh_token".equals(grantType)) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported_grant_type");
+		logger.debug("Token Requested:\ngrant_type: " + grantType + "\ncode: " + code + "\nredirect_uri:" + redirectUri
+				+ "\nclient_id:" + appId + "\nclient_assertion_type:" + clientAssertionType + "\nclient_assertion:"
+				+ clientAssertion + "\n");
+
+		if (!"authorization_code".equals(grantType) && !"refresh_token".equals(grantType)
+				&& !"client_credentials".equals(grantType)) {
+			OAuth2Error error = new OAuth2Error("unsupported_grant_type",
+					"grant type should be authorization_code, refresh_token, or client_credentials");
+			return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 		}
 
 		Long now = (new Date()).getTime();
+		SmartOnFhirAppEntry smartApp = null;
+		SmartOnFhirSessionEntry smartSession = null;
 
-		SmartOnFhirAppEntry smartApp;
-		SmartOnFhirSessionEntry smartSession;
+		boolean generateRefershToken = true;
+
 		// If this is refresh token request, we handle it differently,
 		if ("refresh_token".equals(grantType)) {
 			// if refresh_token does not exist, we return error.
 			if (refreshCode == null || refreshCode.isEmpty()) {
 				logger.debug("Refresh token does not exist.");
-				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid_request");
+				OAuth2Error error = new OAuth2Error("invalid_request", "refresh token cannot be empty");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 			}
 
 			smartSession = smartOnFhirSession.getSmartOnFhirAppByRefreshToken(refreshCode);
 			if (smartSession == null) {
-				logger.debug("Session does not exist for the provided refersh token: "+refreshCode);
-				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid_grant");
+				logger.debug("Session does not exist for the provided refersh token: " + refreshCode);
+				OAuth2Error error = new OAuth2Error("invalid_grant", "no session for provided refresh token");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 			}
 
 			appId = smartSession.getAppId();
@@ -419,15 +459,16 @@ public class SmartAuthServicesController {
 			smartApp = smartOnFhirApp.getSmartOnFhirApp(appId);
 
 			// Spec is asking to do the authentication again if we require authentication.
-			// As we are just testing, we just check the refresh token. 
-			String refreshToken = smartSession.getRefreshToken();			
+			// As we are just testing, we just check the refresh token.
+			String refreshToken = smartSession.getRefreshToken();
 			if (!refreshToken.equals(refreshCode)) {
 				// Incorrect refresh token.
-				logger.debug("Incorrect refresh token ("+refreshCode+") provided. Correct refresh token:"+refreshToken);
-				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid_grant");
+				logger.debug("Incorrect refresh token (" + refreshCode + ") provided. Correct refresh token:"
+						+ refreshToken);
+				OAuth2Error error = new OAuth2Error("invalid_grant", "incorrecr refresh token");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 			}
-			
-			
+
 //			if (smartSession.getAccessTokenExpirationDT() != null) {
 //				Long expire = smartSession.getAccessTokenExpirationDT().getTime();
 //				if (expire <= now) {
@@ -438,28 +479,119 @@ public class SmartAuthServicesController {
 //				}
 //			}
 
-		} else {
-			// This is a token request.  			
+		} else if ("authorization_code".equals(grantType)) {
+			// This is a token request.
 			smartApp = smartOnFhirApp.getSmartOnFhirApp(appId, redirectUri);
 			if (smartApp == null) {
 				// Invalid client-id. We should send with bad request.
-				logger.debug("App does not exist for the AppID:"+appId+", and redirectUri:"+redirectUri);
-				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid_request");
+				logger.debug("App does not exist for the AppID:" + appId + ", and redirectUri:" + redirectUri);
+				OAuth2Error error = new OAuth2Error("invalid_request", "incorrect client-id or redirect uri");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 			}
 			smartSession = smartOnFhirSession.getSmartOnFhirSession(appId, code);
 			if (smartSession == null) {
-				logger.debug("Session does not exist for the AppID:"+appId+", and auth code:"+code);
-				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid_request");
+				logger.debug("Session does not exist for the AppID:" + appId + ", and auth code:" + code);
+				OAuth2Error error = new OAuth2Error("invalid_grant", "incorrecr authorization code");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 			}
-			
+
 			// Check if we are in the authorized time window.
 			Long expire = smartSession.getAuthCodeExpirationDT().getTime();
 			if (expire <= now) {
 				logger.info("Authorization for session-id: " + smartSession.getSessionId() + " is expired");
 
 				// Expired. 400 respond with invalid_grant
-				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid_grant");
+				OAuth2Error error = new OAuth2Error("invalid_grant", "authorization code is expired");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
 			}
+		} else {
+			// client_credentials
+			// 1. Check if this has correct assertion type.
+			if (!"urn:ietf:params:oauth:client-assertion-type:jwt-bearer".equals(clientAssertionType)) {
+				// incorrect type received.
+				// Invalid client-id. We should send with bad request.
+				logger.debug("client_assertion_type must be urn:ietf:params:oauth:client-assertion-type:jwt-bearer");
+				OAuth2Error error = new OAuth2Error("invalid_client", "incorrecr client_assertion_type");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
+			}
+
+			// 2. Validate the JWT and get claims.
+			Jws<Claims> jwsClaims;
+			try {
+				jwsClaims = JwtUtil.getJWTClaims(clientAssertion);
+			} catch (SignatureException e) {
+				logger.debug("JWT failed to get validated: " + e.getMessage());
+				OAuth2Error error = new OAuth2Error("invalid_client", e.getMessage());
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
+			}
+
+			// 3. check iss == client_id
+			Claims claims = jwsClaims.getBody();
+			JwsHeader header = jwsClaims.getHeader();
+			String cilentId = claims.getIssuer();
+
+			List<JwkSetEntry> jwkSets = jwkSet.getJwkSetByAppId(cilentId);
+			if (jwkSets.size() == 0) {
+				// Invalid client-id. We should send with bad request.
+				logger.debug("JWK does not exist for the client-id:" + appId + ", and jws:" + jwsClaims.toString());
+				OAuth2Error error = new OAuth2Error("invalid_client", "incorrect client-id");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
+			}
+
+			smartApp = smartOnFhirApp.getSmartOnFhirApp(cilentId);
+			if (smartApp == null) {
+				// Invalid client-id. We should send with bad request.
+				logger.debug("App does not exist for the client-id:" + appId + ", and jws:" + jwsClaims.toString());
+				OAuth2Error error = new OAuth2Error("invalid_client", "incorrect client-id");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
+			}
+
+			// Choose one that for this JWT
+			String alg = header.getAlgorithm();
+			JwkSetEntry jwkSetEntry = JwtUtil.matchJwkSetEntry(jwkSets, alg);
+
+			// 4. check if it's expired.
+			Date jwtExpiration = claims.getExpiration();
+			Integer expTime = jwkSetEntry.getExp();
+			Integer jwtExpTime = (int) (jwtExpiration.getTime() / 1000);
+			if (jwtExpTime > expTime + 300) { // 5min skew time.
+				logger.debug("JWT is expired. JWT Exp=" + jwtExpTime + ". JWK Exp=" + expTime);
+				OAuth2Error error = new OAuth2Error("invalid_client", "jwt expired");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
+			}
+
+			// JWS is not expired. Now, we check jti to avoid any replay attack.
+			String jtiInJwk = jwkSetEntry.getJti();
+			String jtiInJwt = claims.getId();
+			if (jtiInJwk == jtiInJwt) {
+				// smae jti. this is replay.
+				logger.debug("jti is same as last one in active period (within exp)");
+				OAuth2Error error = new OAuth2Error("invalid_client", "previously encountered jti");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.BAD_REQUEST);
+			}
+
+			// Now we are good. Save jit before we proceed.
+			jwkSetEntry.setJti(jtiInJwt);
+			jwkSet.update(jwkSetEntry);
+
+			// Create a session.
+			smartSession = new SmartOnFhirSessionEntry();
+			String uuid = getNewUUID();
+			smartSession.setSessionId(uuid);
+			smartSession.setAppId(cilentId);
+			
+			// we need to put access token now.
+			String myAccessToken = getAToken();			
+			if (myAccessToken == null) {
+				logger.debug("jti is same as last one in active period (within exp)");
+				OAuth2Error error = new OAuth2Error("internal_error", "failed to create a token");
+				return new ResponseEntity<OAuth2Error>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+			}
+			
+			smartSession.setAccessToken(myAccessToken);
+
+			smartOnFhirSession.save(smartSession);
+			generateRefershToken = false; // SMART on FHIR backend service do not allow refresh token.
 		}
 
 		// It is OK the access token is expired as long as the auth code is not expired.
@@ -470,33 +602,25 @@ public class SmartAuthServicesController {
 		String refreshToken = smartSession.getRefreshToken();
 		Long expiration;
 		if (accessToken == null || accessToken.isEmpty()) {
-			boolean exists = true;
-			while (exists) {
-				accessToken = SmartAuthServicesController.generateNewToken();
-				if (smartOnFhirSession.getSmartOnFhirAppByToken(accessToken) == null)
-					exists = false;
-			}
+			accessToken = getAToken();
 			smartOnFhirSession.putAccessCode(appId, code, accessToken);
 
 			// Add new refresh token as well as the access token is new.
-			exists = true;
-			while (exists) {
-				refreshToken = SmartAuthServicesController.generateNewToken();
-				if (smartOnFhirSession.getSmartOnFhirAppByRefreshToken(refreshToken) == null)
-					exists = false;
+			if (generateRefershToken) {
+				refreshToken = getAToken();
+				smartOnFhirSession.putRefereshCode(appId, code, refreshToken);
 			}
-			smartOnFhirSession.putRefereshCode(appId, code, refreshToken);
-		} 
+		}
 //		else {
 //			expiration = (now - expire) / 1000;
 //		}
-		
+
 		// We will issue new access token expiration date. Update Access Token Timeout.
 		Calendar calendar = Calendar.getInstance();
 		calendar.add(Calendar.MINUTE, accessTokenTimeoutMinutes);
 		java.sql.Date expiresIn = new java.sql.Date(calendar.getTimeInMillis());
 		smartOnFhirSession.updateAccessTokenTimeout(smartSession.getSessionId(), expiresIn);
-		
+
 		expiration = (long) accessTokenTimeoutMinutes * 60;
 
 		TokenResponse tokenResponse = new TokenResponse();
@@ -506,9 +630,12 @@ public class SmartAuthServicesController {
 		tokenResponse.setScope(smartApp.getScope());
 		tokenResponse.setTokenType("Bearer");
 
-		String patient = getPatientIdFromJWT(smartSession.getAuthorizationCode());
-		if (patient != null && !patient.isEmpty()) {
-			tokenResponse.setPatient(patient);
+		String authorization_code = smartSession.getAuthorizationCode();
+		if (authorization_code != null) {
+			String patient = getPatientIdFromJWT(smartSession.getAuthorizationCode());
+			if (patient != null && !patient.isEmpty()) {
+				tokenResponse.setPatient(patient);
+			}
 		}
 
 		logger.debug("token: responding with " + tokenResponse.toString());
@@ -518,21 +645,25 @@ public class SmartAuthServicesController {
 	}
 
 	@PostMapping(value = "/introspect")
-	public ResponseEntity<IntrospectResponse> introspect(HttpServletRequest request, @RequestParam(name = "token", required = true) String token,
-			Model model) {
-		
+	public ResponseEntity<?> introspect(HttpServletRequest request,
+			@RequestParam(name = "token", required = true) String token, Model model) {
+
 		// Check Basic authentication.
 		String authReq = request.getHeader("Authorization");
 		if (authReq == null || authReq.isEmpty()) {
-			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No Authorization Header");
+//			logger.debug("No Authorization Header found in the header.");
+//			OAuth2Error error = new OAuth2Error("invalid_client", "No Authorization Header");
+//			return new ResponseEntity<OAuth2Error>(error, HttpStatus.UNAUTHORIZED);
+			logger.info("Authorization header mising");
+			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authorization header mising");
 		}
-		
+
 		IntrospectResponse introspectResponse = null;
 		if (authReq.startsWith("Basic ") || authReq.startsWith("basic ")) {
 			String basicKey = authReq.substring(6);
 			String base64decoded = new String(Base64.decodeBase64(basicKey));
 			if (!authBasic.equals(base64decoded)) {
-				logger.info("Basic Authorization Failed: "+base64decoded+" requested");
+				logger.info("Basic Authorization Failed: " + base64decoded + " requested");
 				throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Basic Authorization Failed");
 			}
 		} else {
@@ -543,47 +674,70 @@ public class SmartAuthServicesController {
 
 		String authBearer = System.getenv("AUTH_BEARER");
 		if (authBearer != null && !authBearer.isEmpty()) {
-			logger.debug("local bearer "+token);
+			logger.debug("local bearer " + token);
 			if (token.equals(authBearer.trim())) {
-				// This is local bearer request. We allow with only Read. 
+				// This is local bearer request. We allow with only Read.
 				// And we always give a new 5min expiration time, which means it never expires.
 				introspectResponse = new IntrospectResponse(true, "launch profile openid online_access user/*.*");
-				introspectResponse.setExp((now/1000) + accessTokenTimeoutMinutes*60);
+				introspectResponse.setExp((now / 1000) + accessTokenTimeoutMinutes * 60);
 				introspectResponse.setTokenType("Bearer");
 
 				return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.OK);
 			}
 		}
-		
+
 		SmartOnFhirSessionEntry smartSession = smartOnFhirSession.getSmartOnFhirAppByToken(token);
 		if (smartSession == null) {
-//			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid_client");
-			return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.UNAUTHORIZED);
+			// We couldn't find a token. We send 200 OK with set this token inactive. 
+			// Put only active key.
+			// see Sec 2.2 of RFC 7662
+			introspectResponse = new IntrospectResponse();
+			introspectResponse.setActive(false);
+
+			return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.OK);
 		}
 
 		SmartOnFhirAppEntry smartApp = smartOnFhirApp.getSmartOnFhirApp(smartSession.getAppId());
 		if (smartApp == null) {
-//			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid_client");
-			return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.UNAUTHORIZED);
+			introspectResponse = new IntrospectResponse();
+			introspectResponse.setActive(false);
+
+			return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.OK);
 		}
 
 		Long expire = smartSession.getAccessTokenExpirationDT().getTime();
 		if (expire <= now) {
-			// Expired. 401 respond with invalid_grant
-//			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid_grant");
-			return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.UNAUTHORIZED);
+			introspectResponse = new IntrospectResponse();
+			introspectResponse.setActive(false);
+
+			return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.OK);
 		}
 
 		introspectResponse = new IntrospectResponse(true, smartApp.getScope());
-		String patient = getPatientIdFromJWT(smartSession.getAuthorizationCode());
-		if (patient != null && !patient.isEmpty()) {
-			introspectResponse.setPatient(patient);
+		String authorizationCode = smartSession.getAuthorizationCode();
+		if (authorizationCode != null && !authorizationCode.isEmpty()) {
+			String patient = getPatientIdFromJWT(authorizationCode);
+			if (patient != null && !patient.isEmpty()) {
+				introspectResponse.setPatient(patient);
+			}
 		}
-
+		
 		introspectResponse.setExp(expire / 1000);
 		introspectResponse.setTokenType("Bearer");
 
 		return new ResponseEntity<IntrospectResponse>(introspectResponse, HttpStatus.OK);
+	}
+
+	private String getNewUUID() {
+		String uuid = null;
+
+		boolean exists = true;
+		while (exists) {
+			uuid = UUID.randomUUID().toString();
+			exists = smartOnFhirSession.exists(uuid);
+		}
+
+		return uuid;
 	}
 
 	@PostMapping(value = "/after-auth")
@@ -650,12 +804,7 @@ public class SmartAuthServicesController {
 			}
 
 			sessionEntry = new SmartOnFhirSessionEntry();
-			String uuid = "";
-			boolean exists = true;
-			while (exists) {
-				uuid = UUID.randomUUID().toString();
-				exists = smartOnFhirSession.exists(uuid);
-			}
+			String uuid = getNewUUID();
 			sessionEntry.setSessionId(uuid);
 			sessionEntry.setAuthorizationCode(code);
 			sessionEntry.setAppId(smartApp.getAppId());
@@ -696,13 +845,24 @@ public class SmartAuthServicesController {
 		return "app_create";
 	}
 
-	private void populateModel(Model model, SmartOnFhirAppEntry appEntry) {
+	private void populateModel(Model model, SmartOnFhirAppEntry appEntry, JwkSetEntry jwkSetEntry) {
 		model.addAttribute("client_id", appEntry.getAppId());
 		model.addAttribute("scope", appEntry.getScope());
 		model.addAttribute("app_type", appEntry.getAppType());
 		model.addAttribute("redirect_uri", appEntry.getRedirectUri());
 		model.addAttribute("launch_uri", appEntry.getLaunchUri());
 		model.addAttribute("app_name", appEntry.getAppName());
+		if ("System".equals(appEntry.getAppType()) && jwkSetEntry != null) {
+			model.addAttribute("kty", jwkSetEntry.getKty());
+			model.addAttribute("kid", jwkSetEntry.getKid());
+			model.addAttribute("exp", jwkSetEntry.getExp());
+			model.addAttribute("public_key", jwkSetEntry.getPublicKey());
+		} else {
+			model.addAttribute("kty", "");
+			model.addAttribute("kid", "");
+			model.addAttribute("exp", "");
+			model.addAttribute("public_key", "");
+		}
 	}
 
 	private String makeScope(String appType, String user_condition_r, String user_documentreference_r,
@@ -719,7 +879,7 @@ public class SmartAuthServicesController {
 		String scope = "launch profile openid online_access ";
 		if ("Patient".equals(appType))
 			scope += "launch/patient ";
-		
+
 		// read
 		if (user_condition_r != null)
 			scope += "user/Condition.read ";
@@ -787,8 +947,23 @@ public class SmartAuthServicesController {
 			scope += "patient/Patient.write ";
 		if (patient_procedure_w != null)
 			scope += "patient/Procedure.write ";
-		
+
 		return scope.trim();
+	}
+
+	private String makeScope(String selectedScopes) {
+		// Just do the sanity check. And, remove any duplicates.
+		String[] scopes = selectedScopes.split(" ");
+		String scope = "";
+
+		for (String scope_ : scopes) {
+			scope_ = scope_.trim().replaceAll("\\s+", " ");
+			if (!scope.contains(scope_)) {
+				scope += " " + scope_;
+			}
+		}
+
+		return scope.trim().replaceAll("\\s+", " ");
 	}
 
 	@RequestMapping(value = "/app-new")
@@ -797,6 +972,12 @@ public class SmartAuthServicesController {
 			@RequestParam(name = "redirect_uri", required = true) String redirectUri,
 			@RequestParam(name = "launch_uri", required = false) String launchUri,
 			@RequestParam(name = "app_name", required = true) String appName,
+			@RequestParam(name = "public_key", required = false) String publicKey,
+			@RequestParam(name = "selected_scopes", required = true) String selectedScopes,
+			@RequestParam(name = "kty", required = false) String kty,
+			@RequestParam(name = "kid", required = false) String kid,
+			@RequestParam(name = "exp", required = false) String exp,
+			@RequestParam(name = "jwk_raw", required = false) String jwkRaw,
 			@RequestParam(name = "user_condition_r", required = false) String user_condition_r,
 			@RequestParam(name = "user_documentreference_r", required = false) String user_documentreference_r,
 			@RequestParam(name = "user_encounter_r", required = false) String user_encounter_r,
@@ -828,21 +1009,25 @@ public class SmartAuthServicesController {
 			@RequestParam(name = "patient_medicationrequest_w", required = false) String patient_medicationrequest_w,
 			@RequestParam(name = "patient_observation_w", required = false) String patient_observation_w,
 			@RequestParam(name = "patient_patient_w", required = false) String patient_patient_w,
-			@RequestParam(name = "patient_procedure_w", required = false) String patient_procedure_w,
-			Model model) {
+			@RequestParam(name = "patient_procedure_w", required = false) String patient_procedure_w, Model model) {
 
 		// Alway pass this information so that JSP can route to correct endpoint
 		model.addAttribute("base_url", baseUrl);
 
-		String scope = makeScope(appType, user_condition_r, user_documentreference_r, user_encounter_r,
-				user_medicationstatement_r, user_medicationrequest_r, user_observation_r, user_patient_r,
-				user_procedure_r, patient_condition_r, patient_documentreference_r, patient_encounter_r,
-				patient_medicationstatement_r, patient_medicationrequest_r, patient_observation_r, patient_patient_r,
-				patient_procedure_r, user_condition_w, user_documentreference_w, user_encounter_w,
-				user_medicationstatement_w, user_medicationrequest_w, user_observation_w, user_patient_w,
-				user_procedure_w, patient_condition_w, patient_documentreference_w, patient_encounter_w,
-				patient_medicationstatement_w, patient_medicationrequest_w, patient_observation_w, patient_patient_w,
-				patient_procedure_w);
+		String scope;
+		if (selectedScopes == null || selectedScopes.isEmpty()) {
+			scope = makeScope(appType, user_condition_r, user_documentreference_r, user_encounter_r,
+					user_medicationstatement_r, user_medicationrequest_r, user_observation_r, user_patient_r,
+					user_procedure_r, patient_condition_r, patient_documentreference_r, patient_encounter_r,
+					patient_medicationstatement_r, patient_medicationrequest_r, patient_observation_r,
+					patient_patient_r, patient_procedure_r, user_condition_w, user_documentreference_w,
+					user_encounter_w, user_medicationstatement_w, user_medicationrequest_w, user_observation_w,
+					user_patient_w, user_procedure_w, patient_condition_w, patient_documentreference_w,
+					patient_encounter_w, patient_medicationstatement_w, patient_medicationrequest_w,
+					patient_observation_w, patient_patient_w, patient_procedure_w);
+		} else {
+			scope = makeScope(selectedScopes);
+		}
 
 		SmartOnFhirAppEntry appEntry = new SmartOnFhirAppEntry();
 		appEntry.setAppId(appId);
@@ -854,7 +1039,25 @@ public class SmartAuthServicesController {
 
 		smartOnFhirApp.save(appEntry);
 
-		populateModel(model, appEntry);
+		JwkSetEntry jwkSetEntry = null;
+		if ("System".equals(appType)) {
+			jwkSetEntry = new JwkSetEntry();
+			jwkSetEntry.setAppId(appId);
+			jwkSetEntry.setKty(kty);
+			jwkSetEntry.setKid(kid);
+			if (exp != null && !exp.isEmpty()) {
+				jwkSetEntry.setExp(Integer.valueOf(exp));
+			} else {
+				jwkSetEntry.setExp(1902494733);
+			}
+			jwkSetEntry.setPublicKey(publicKey);
+			jwkSetEntry.setJwkRaw(jwkRaw);
+
+			jwkSet.save(jwkSetEntry);
+		}
+
+		populateModel(model, appEntry, jwkSetEntry);
+
 		return "app_view";
 	}
 
@@ -864,6 +1067,12 @@ public class SmartAuthServicesController {
 			@RequestParam(name = "redirect_uri", required = true) String redirectUri,
 			@RequestParam(name = "launch_uri", required = false) String launchUri,
 			@RequestParam(name = "app_name", required = true) String appName,
+			@RequestParam(name = "public_key", required = true) String publicKey,
+			@RequestParam(name = "selected_scopes", required = true) String selectedScopes,
+			@RequestParam(name = "kty", required = false) String kty,
+			@RequestParam(name = "kid", required = false) String kid,
+			@RequestParam(name = "exp", required = false) String exp,
+			@RequestParam(name = "jwk_raw", required = false) String jwkRaw,
 			@RequestParam(name = "user_condition_r", required = false) String user_condition_r,
 			@RequestParam(name = "user_documentreference_r", required = false) String user_documentreference_r,
 			@RequestParam(name = "user_encounter_r", required = false) String user_encounter_r,
@@ -879,7 +1088,7 @@ public class SmartAuthServicesController {
 			@RequestParam(name = "patient_medicationrequest_r", required = false) String patient_medicationrequest_r,
 			@RequestParam(name = "patient_observation_r", required = false) String patient_observation_r,
 			@RequestParam(name = "patient_patient_r", required = false) String patient_patient_r,
-			@RequestParam(name = "patient_procedure_r", required = false) String patient_procedure_r, 
+			@RequestParam(name = "patient_procedure_r", required = false) String patient_procedure_r,
 			@RequestParam(name = "user_condition_w", required = false) String user_condition_w,
 			@RequestParam(name = "user_documentreference_w", required = false) String user_documentreference_w,
 			@RequestParam(name = "user_encounter_w", required = false) String user_encounter_w,
@@ -895,21 +1104,25 @@ public class SmartAuthServicesController {
 			@RequestParam(name = "patient_medicationrequest_w", required = false) String patient_medicationrequest_w,
 			@RequestParam(name = "patient_observation_w", required = false) String patient_observation_w,
 			@RequestParam(name = "patient_patient_w", required = false) String patient_patient_w,
-			@RequestParam(name = "patient_procedure_w", required = false) String patient_procedure_w, 
-			Model model) {
+			@RequestParam(name = "patient_procedure_w", required = false) String patient_procedure_w, Model model) {
 
 		// Alway pass this information so that JSP can route to correct endpoint
 		model.addAttribute("base_url", baseUrl);
 
-		String scope = makeScope(appType, user_condition_r, user_documentreference_r, user_encounter_r,
-				user_medicationstatement_r, user_medicationrequest_r, user_observation_r, user_patient_r,
-				user_procedure_r, patient_condition_r, patient_documentreference_r, patient_encounter_r,
-				patient_medicationstatement_r, patient_medicationrequest_r, patient_observation_r, patient_patient_r,
-				patient_procedure_r, user_condition_w, user_documentreference_w, user_encounter_w,
-				user_medicationstatement_w, user_medicationrequest_w, user_observation_w, user_patient_w,
-				user_procedure_w, patient_condition_w, patient_documentreference_w, patient_encounter_w,
-				patient_medicationstatement_w, patient_medicationrequest_w, patient_observation_w, patient_patient_w,
-				patient_procedure_w);
+		String scope;
+		if (selectedScopes == null || selectedScopes.isEmpty()) {
+			scope = makeScope(appType, user_condition_r, user_documentreference_r, user_encounter_r,
+					user_medicationstatement_r, user_medicationrequest_r, user_observation_r, user_patient_r,
+					user_procedure_r, patient_condition_r, patient_documentreference_r, patient_encounter_r,
+					patient_medicationstatement_r, patient_medicationrequest_r, patient_observation_r,
+					patient_patient_r, patient_procedure_r, user_condition_w, user_documentreference_w,
+					user_encounter_w, user_medicationstatement_w, user_medicationrequest_w, user_observation_w,
+					user_patient_w, user_procedure_w, patient_condition_w, patient_documentreference_w,
+					patient_encounter_w, patient_medicationstatement_w, patient_medicationrequest_w,
+					patient_observation_w, patient_patient_w, patient_procedure_w);
+		} else {
+			scope = makeScope(selectedScopes);
+		}
 
 		SmartOnFhirAppEntry appEntry = smartOnFhirApp.getSmartOnFhirApp(appId);
 		if (appEntry == null) {
@@ -926,7 +1139,25 @@ public class SmartAuthServicesController {
 
 		smartOnFhirApp.update(appEntry);
 
-		populateModel(model, appEntry);
+		JwkSetEntry jwkSetEntry = null;
+		if ("System".equals(appType)) {
+			jwkSetEntry = new JwkSetEntry();
+			jwkSetEntry.setAppId(appId);
+			jwkSetEntry.setKty(kty);
+			jwkSetEntry.setKid(kid);
+			if (exp != null && !exp.isEmpty()) {
+				jwkSetEntry.setExp(Integer.valueOf(exp));
+			} else {
+				jwkSetEntry.setExp(1902494733);
+			}
+			jwkSetEntry.setPublicKey(publicKey);
+			jwkSetEntry.setJwkRaw(jwkRaw);
+
+			jwkSet.update(jwkSetEntry);
+		}
+
+		populateModel(model, appEntry, jwkSetEntry);
+
 		return "app_view";
 	}
 
@@ -942,14 +1173,27 @@ public class SmartAuthServicesController {
 			return "error";
 		}
 
-		populateModel(model, appEntry);
+		List<JwkSetEntry> jwkSetEntries = jwkSet.getJwkSetByAppId(appId);
+		JwkSetEntry jwkSetEntry = null;
+		if (jwkSetEntries.size() > 0) {
+			jwkSetEntry = jwkSetEntries.get(0);
+		}
+
+		populateModel(model, appEntry, jwkSetEntry);
+
 		return "app_edit";
 	}
 
 	@GetMapping(value = "/app-view")
 	public String appView(@RequestParam(name = "client_id", required = true) String appId, Model model) {
 		SmartOnFhirAppEntry appEntry = smartOnFhirApp.getSmartOnFhirApp(appId);
-		populateModel(model, appEntry);
+		List<JwkSetEntry> jwkSetEntries = jwkSet.getJwkSetByAppId(appId);
+		JwkSetEntry jwkSetEntry = null;
+		if (jwkSetEntries.size() > 0) {
+			jwkSetEntry = jwkSetEntries.get(0);
+		}
+
+		populateModel(model, appEntry, jwkSetEntry);
 
 		// Alway pass this information so that JSP can route to correct endpoint
 		model.addAttribute("base_url", baseUrl);
@@ -959,6 +1203,7 @@ public class SmartAuthServicesController {
 
 	@DeleteMapping(value = "/app-delete")
 	public String appDelete(@RequestParam(name = "client_id", required = true) String appId, Model model) {
+		jwkSet.delete(appId);
 		smartOnFhirSession.deleteByAppId(appId);
 		smartOnFhirApp.delete(appId);
 
