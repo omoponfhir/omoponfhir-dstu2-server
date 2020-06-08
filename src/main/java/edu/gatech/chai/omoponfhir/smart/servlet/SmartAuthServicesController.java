@@ -18,17 +18,14 @@ package edu.gatech.chai.omoponfhir.smart.servlet;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
 import java.security.SecureRandom;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
-import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.SecretKey;
 import javax.servlet.http.HttpServletRequest;
-//import javax.servlet.annotation.WebServlet;
-import javax.xml.bind.DatatypeConverter;
 
 import org.apache.commons.codec.binary.Base64;
 import org.json.JSONObject;
@@ -68,7 +65,7 @@ import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwsHeader;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
 
 /**
@@ -186,14 +183,15 @@ public class SmartAuthServicesController {
 	}
 
 	private String generateJWT(String launchContext, String scope, SmartOnFhirAppEntry smartApp) {
-		SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS256;
+//		SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS256;
 
 		long nowMillis = System.currentTimeMillis();
 		Date now = new Date(nowMillis);
 		Date expiration = new Date(nowMillis + 300000); // 5m later
 
-		byte[] apiKeySecretBytes = DatatypeConverter.parseBase64Binary(jwtSecret);
-		Key signingKey = new SecretKeySpec(apiKeySecretBytes, signatureAlgorithm.getJcaName());
+//		byte[] apiKeySecretBytes = DatatypeConverter.parseBase64Binary(jwtSecret);
+//		Key signingKey = new SecretKeySpec(apiKeySecretBytes, signatureAlgorithm.getJcaName());
+		SecretKey sharedSecret = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
 
 		JSONObject payload = new JSONObject();
 		JSONObject context = new JSONObject();
@@ -210,8 +208,10 @@ public class SmartAuthServicesController {
 		payload.put("iat", now.getTime() / 1000);
 		payload.put("exp", expiration.getTime() / 1000);
 
+//		JwtBuilder jwtBuilder = Jwts.builder().setHeaderParam(Header.TYPE, Header.JWT_TYPE)
+//				.setPayload(payload.toString()).signWith(signingKey, signatureAlgorithm);
 		JwtBuilder jwtBuilder = Jwts.builder().setHeaderParam(Header.TYPE, Header.JWT_TYPE)
-				.setPayload(payload.toString()).signWith(signingKey, signatureAlgorithm);
+				.setPayload(payload.toString()).signWith(sharedSecret);
 		return jwtBuilder.compact();
 	}
 
