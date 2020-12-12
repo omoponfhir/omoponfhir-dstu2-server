@@ -34,6 +34,7 @@ import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.PractitionerResourceProv
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ProcedureResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ServerOperations;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.SystemTransactionProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.utilities.StaticValues;
 import edu.gatech.chai.omoponfhir.security.OIDCInterceptor;
 
 import org.springframework.web.context.WebApplicationContext;
@@ -63,7 +64,7 @@ public class RestfulServlet extends RestfulServer {
 	 * Constructor
 	 */
 	public RestfulServlet() {
-		super(FhirContext.forDstu2());
+		super(StaticValues.myFhirContext);
 	}
 
 	/**
