@@ -24,7 +24,8 @@ import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceUseStatementResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DocumentReferenceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.EncounterResourceProvider;
-import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationRequestResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ImmunizationResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationOrderResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationStatementResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ObservationResourceProvider;
@@ -40,7 +41,6 @@ import edu.gatech.chai.omoponfhir.security.OIDCInterceptor;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.cors.CorsConfiguration;
 
-import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.narrative.DefaultThymeleafNarrativeGenerator;
 import ca.uhn.fhir.narrative.INarrativeGenerator;
 import ca.uhn.fhir.rest.api.EncodingEnum;
@@ -115,7 +115,7 @@ public class RestfulServlet extends RestfulServer {
 		MedicationStatementResourceProvider medicationStatementResourceProvider = new MedicationStatementResourceProvider();
 		providers.add(medicationStatementResourceProvider);
 
-		MedicationRequestResourceProvider medicationRequestResourceProvider = new MedicationRequestResourceProvider();
+		MedicationOrderResourceProvider medicationRequestResourceProvider = new MedicationOrderResourceProvider();
 		providers.add(medicationRequestResourceProvider);
 
 		ObservationResourceProvider observationResourceProvider = new ObservationResourceProvider();
@@ -141,6 +141,9 @@ public class RestfulServlet extends RestfulServer {
 
 		DocumentReferenceResourceProvider documentReferenceResourceProvider = new DocumentReferenceResourceProvider();
 		providers.add(documentReferenceResourceProvider);
+
+		ImmunizationResourceProvider immunizationResourceProvider = new ImmunizationResourceProvider();
+		providers.add(immunizationResourceProvider);
 
 		ConceptMapResourceProvider conceptMapResourceProvider = new ConceptMapResourceProvider();
 		conceptMapResourceProvider.setFhirContext(getFhirContext());
