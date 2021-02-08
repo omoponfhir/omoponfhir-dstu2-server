@@ -25,6 +25,7 @@ import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceUseStatementResour
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DocumentReferenceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.EncounterResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ImmunizationResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationAdministrationResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationOrderResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationStatementResourceProvider;
@@ -108,6 +109,9 @@ public class RestfulServlet extends RestfulServer {
 
 		EncounterResourceProvider encounterResourceProvider = new EncounterResourceProvider();
 		providers.add(encounterResourceProvider);
+
+		MedicationAdministrationResourceProvider medicationAdministrationResourceProvider = new MedicationAdministrationResourceProvider();
+		providers.add(medicationAdministrationResourceProvider);
 
 		MedicationResourceProvider medicationResourceProvider = new MedicationResourceProvider();
 		providers.add(medicationResourceProvider);
