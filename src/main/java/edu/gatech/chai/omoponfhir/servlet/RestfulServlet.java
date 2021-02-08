@@ -18,7 +18,7 @@ package edu.gatech.chai.omoponfhir.servlet;
 import java.util.*;
 
 import edu.gatech.chai.omoponfhir.dstu2.security.SMARTonFHIRConformanceStatement;
-import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.AllergyIntoleranceResourceProvider;
+//import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.AllergyIntoleranceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ConceptMapResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ConditionResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceResourceProvider;
@@ -150,8 +150,8 @@ public class RestfulServlet extends RestfulServer {
 		ImmunizationResourceProvider immunizationResourceProvider = new ImmunizationResourceProvider();
 		providers.add(immunizationResourceProvider);
 
-		AllergyIntoleranceResourceProvider allergyIntoleranceResourceProvider = new AllergyIntoleranceResourceProvider();
-		providers.add(allergyIntoleranceResourceProvider);
+	//	AllergyIntoleranceResourceProvider allergyIntoleranceResourceProvider = new AllergyIntoleranceResourceProvider();
+	//	providers.add(allergyIntoleranceResourceProvider);
 
 		ConceptMapResourceProvider conceptMapResourceProvider = new ConceptMapResourceProvider();
 		conceptMapResourceProvider.setFhirContext(getFhirContext());
