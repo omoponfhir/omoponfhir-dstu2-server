@@ -86,14 +86,6 @@
 		<servlet-name>fhirServlet</servlet-name>
 		<servlet-class>edu.gatech.chai.omoponfhir.servlet.RestfulServlet
 		</servlet-class>
-		<init-param>
-			<param-name>introspectUrl</param-name>
-			<param-value>http://localhost:8080/introspect</param-value>
-		</init-param>
-		<init-param>
-			<param-name>readOnly</param-name>
-			<param-value>True</param-value>
-		</init-param>
 		<load-on-startup>1</load-on-startup>
 	</servlet>
 	<servlet-mapping>
