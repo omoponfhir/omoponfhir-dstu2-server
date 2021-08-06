@@ -16,7 +16,7 @@
 	<groupId>edu.gatech.chai</groupId>
 	<artifactId>omoponfhir-dstu2-server</artifactId>
 	<packaging>war</packaging>
-	<version>1.1.0</version>
+	<version>1.2.0</version>
 
 	<name>OMOPonFHIR RESTful Server</name>
 
@@ -33,7 +33,7 @@
 	<properties>
 		<hapi_stable_version>4.2.0</hapi_stable_version>
 		<hapi_current_version>4.2.0-SNAPSHOT</hapi_current_version>
-		<omoponfhir_mapping_version>1.1.1</omoponfhir_mapping_version>
+		<omoponfhir_mapping_version>1.3.2</omoponfhir_mapping_version>
 
 		<!-- configure timestamp in MANIFEST.MF for maven-war-provider -->
 		<maven.build.timestamp.format>yyyy-MM-dd'T'HH:mm:ss'Z'</maven.build.timestamp.format>
@@ -43,7 +43,7 @@
 		<!-- Dependency Versions -->
 		<derby_version>10.14.2.0</derby_version>
 		<jersey_version>2.25.1</jersey_version>
-		<jetty_version>9.4.27.v20200227</jetty_version>
+		<jetty_version>9.4.38.v20210224</jetty_version>
 
 		<hibernate_version>5.4.21.Final</hibernate_version>
 		<hibernate_validator_version>6.1.5.Final</hibernate_validator_version>
@@ -51,7 +51,7 @@
 		<hibernate_search_version>5.11.5.Final</hibernate_search_version>
 
 		<jackson_version>2.10.9</jackson_version>
-		<jackson_databind_version>2.10.0</jackson_databind_version>
+		<jackson_databind_version>2.10.5.1</jackson_databind_version>
 		<jaxb_api_version>2.3.1</jaxb_api_version>
 		<lucene_version>5.5.5</lucene_version>
 		<maven_assembly_plugin_version>3.1.0</maven_assembly_plugin_version>
@@ -349,7 +349,7 @@
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-databind</artifactId>
-			<version>2.10.3</version>
+			<version>${jackson_databind_version}</version>
 		</dependency>
 
 		<!-- https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc -->
