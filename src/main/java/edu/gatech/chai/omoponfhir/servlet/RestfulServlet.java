@@ -18,12 +18,14 @@ package edu.gatech.chai.omoponfhir.servlet;
 import java.util.*;
 
 import edu.gatech.chai.omoponfhir.dstu2.security.SMARTonFHIRConformanceStatement;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.AllergyIntoleranceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ConceptMapResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ConditionResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DeviceUseStatementResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.DocumentReferenceResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.EncounterResourceProvider;
+import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.ImmunizationResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationRequestResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationResourceProvider;
 import edu.gatech.chai.omoponfhir.omopv5.dstu2.provider.MedicationStatementResourceProvider;
@@ -140,6 +142,12 @@ public class RestfulServlet extends RestfulServer {
 
 		DocumentReferenceResourceProvider documentReferenceResourceProvider = new DocumentReferenceResourceProvider();
 		providers.add(documentReferenceResourceProvider);
+
+		ImmunizationResourceProvider immunizationResourceProvider = new ImmunizationResourceProvider();
+		providers.add(immunizationResourceProvider);
+
+		AllergyIntoleranceResourceProvider allergyIntoleranceResourceProvider = new AllergyIntoleranceResourceProvider();
+		providers.add(allergyIntoleranceResourceProvider);
 
 		ConceptMapResourceProvider conceptMapResourceProvider = new ConceptMapResourceProvider();
 		conceptMapResourceProvider.setFhirContext(getFhirContext());
